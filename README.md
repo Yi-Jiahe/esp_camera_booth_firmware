@@ -1,6 +1,9 @@
 # Camera Booth
 
 Utilizing the AI thinker [ESP32-CAM module](http://www.ai-thinker.com/pro_view-24.html) clone(?).
+    - 8MB PSRAM
+    - OV2640 camera module
+
 
 ## References
 

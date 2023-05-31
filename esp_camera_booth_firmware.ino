@@ -1,4 +1,7 @@
 #include "esp_camera.h"
+#include "FS.h"
+#include "SD_MMC.h"
+#include "driver/ledc.h"
 
 #define CAMERA_MODEL_AI_THINKER
 
@@ -28,7 +31,6 @@ void initCamera()
     config.xclk_freq_hz = 20000000;
     config.frame_size = FRAMESIZE_UXGA;
     config.pixel_format = PIXFORMAT_JPEG; // for streaming
-    // config.pixel_format = PIXFORMAT_RGB565; // for face detection/recognition
     config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
     config.fb_location = CAMERA_FB_IN_PSRAM;
     config.jpeg_quality = 12;
@@ -36,34 +38,19 @@ void initCamera()
 
     // if PSRAM IC present, init with UXGA resolution and higher JPEG quality
     //                      for larger pre-allocated frame buffer.
-    if (config.pixel_format == PIXFORMAT_JPEG)
+    if (psramFound())
     {
-        if (psramFound())
-        {
-            config.jpeg_quality = 10;
-            config.fb_count = 2;
-            config.grab_mode = CAMERA_GRAB_LATEST;
-        }
-        else
-        {
-            // Limit the frame size when PSRAM is not available
-            config.frame_size = FRAMESIZE_SVGA;
-            config.fb_location = CAMERA_FB_IN_DRAM;
-        }
+        config.jpeg_quality = 10;
+        config.fb_count = 2;
+        config.grab_mode = CAMERA_GRAB_LATEST;
     }
     else
     {
-        // Best option for face detection/recognition
-        config.frame_size = FRAMESIZE_240X240;
-#if CONFIG_IDF_TARGET_ESP32S3
-        config.fb_count = 2;
-#endif
+        Serial.println("PSRAM not found");
+        // Limit the frame size when PSRAM is not available
+        config.frame_size = FRAMESIZE_SVGA;
+        config.fb_location = CAMERA_FB_IN_DRAM;
     }
-
-#if defined(CAMERA_MODEL_ESP_EYE)
-    pinMode(13, INPUT_PULLUP);
-    pinMode(14, INPUT_PULLUP);
-#endif
 
     // camera init
     esp_err_t err = esp_camera_init(&config);
@@ -74,36 +61,85 @@ void initCamera()
     }
 
     sensor_t *s = esp_camera_sensor_get();
-    // initial sensors are flipped vertically and colors are a bit saturated
-    if (s->id.PID == OV3660_PID)
+    s->set_quality(s, 4);
+    s->set_brightness(s, 2);
+    s->set_contrast(s, 0);
+    s->set_saturation(s, 0);
+    s->set_whitebal(s, 1);
+    s->set_awb_gain(s, 1);
+    s->set_wb_mode(s, 0);
+    s->set_exposure_ctrl(s, 1);
+}
+
+int initSD()
+{
+    if (!SD_MMC.begin())
     {
-        s->set_vflip(s, 1);       // flip it back
-        s->set_brightness(s, 1);  // up the brightness just a bit
-        s->set_saturation(s, -2); // lower the saturation
-    }
-    // drop down frame size for higher initial frame rate
-    if (config.pixel_format == PIXFORMAT_JPEG)
-    {
-        s->set_framesize(s, FRAMESIZE_QVGA);
+        Serial.println("Failed to mount SD card"); 
+        return -1;
     }
 
-#if defined(CAMERA_MODEL_M5STACK_WIDE) || defined(CAMERA_MODEL_M5STACK_ESP32CAM)
-    s->set_vflip(s, 1);
-    s->set_hmirror(s, 1);
-#endif
+    uint8_t cardType = SD_MMC.cardType();
+    if (cardType == CARD_NONE)
+    {
+        Serial.println("No SD card available"); 
+        return -2;
+    }
 
-#if defined(CAMERA_MODEL_ESP32S3_EYE)
-    s->set_vflip(s, 1);
-#endif
+    return 0;
 }
 
 void setup()
 {
+    Serial.begin(115200);
+    Serial.println("Hello");
+
     initCamera();
+    Serial.println("Camera Initialized"); 
+
+    if (initSD() != 0)
+    {
+        Serial.println("Failed to initialize SD"); 
+        return;
+    }
+    Serial.println("SD Initialized");
+
+    camera_fb_t *fb = NULL;
+
+    // Grab a number of frames for automatic exposure control
+    int i;
+    for (i=0; i<3; i++){
+        fb = esp_camera_fb_get();
+        esp_camera_fb_return(fb);
+    }
+    fb = esp_camera_fb_get();
+    if (!fb)
+    {
+        Serial.println("Camera capture failed"); 
+        return;
+    }
+    Serial.println("Picture taken"); 
+
+    String path = "/picture.jpg";
+
+    fs::FS &fs = SD_MMC;
+
+    File file = fs.open(path.c_str(), FILE_WRITE);
+    if (!file)
+    {
+        Serial.println("Failed to open file in writing mode"); 
+        return;
+    }
+
+    file.write(fb->buf, fb->len); // payload (image), payload length
+    file.close();
+    Serial.println("Image saved"); 
+
+    esp_camera_fb_return(fb);
+
+    esp_deep_sleep_start();
 }
 
 void loop()
 {
-
 }
-   
