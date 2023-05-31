@@ -4,7 +4,7 @@
 
 #include "camera_pins.h"
 
-void setup()
+void initCamera()
 {
     camera_config_t config;
     config.ledc_channel = LEDC_CHANNEL_0;
@@ -97,7 +97,13 @@ void setup()
 #endif
 }
 
+void setup()
+{
+    initCamera();
+}
+
 void loop()
 {
-    
+
 }
+   
