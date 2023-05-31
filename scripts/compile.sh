@@ -1,0 +1,1 @@
+arduino-cli compile . --export-binaries --profile $1 -v
